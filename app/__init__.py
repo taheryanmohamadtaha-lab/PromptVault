@@ -1,0 +1,5 @@
+"""گنجینه پرامپت (PromptVault)."""
+__version__ = "1.0.0"
+APP_NAME_FA = "گنجینه پرامپت"
+APP_NAME_EN = "PromptVault"
+APP_SLOGAN = "تمام پرامپت‌های هوشمند شما، همیشه در دسترس و منظم"

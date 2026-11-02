@@ -1,0 +1,5 @@
+# ابزارهای توسعه، تست و ساخت EXE
+-r requirements.txt
+pytest>=8,<10
+pyinstaller>=6.10,<7
+pillow>=10
