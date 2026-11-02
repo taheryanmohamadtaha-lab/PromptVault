@@ -1,0 +1,78 @@
+name: Windows Build
+
+# اجرای دستی (Actions ‹ Windows Build ‹ Run workflow) یا ساخت Tag با فرمت v1.0.0 → ساخت و انتشار خودکار
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write   # لازم برای ساخت GitHub Release
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Run tests (logic + UI smoke, offscreen)
+        run: python -m pytest -q
+
+      - name: Read version
+        id: ver
+        shell: bash
+        run: echo "version=$(python -c 'import app; print(app.__version__)')" >> "$GITHUB_OUTPUT"
+
+      - name: Build EXE (PyInstaller)
+        run: pyinstaller --noconfirm --clean PromptVault.spec
+
+      - name: Self-test the built EXE
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP "selftest.txt"
+          $p = Start-Process -FilePath "dist\PromptVault\PromptVault.exe" -ArgumentList "--selftest", "`"$out`"" -PassThru -Wait
+          if (Test-Path $out) { Get-Content $out }
+          if (-not (Test-Path $out) -or -not ((Get-Content $out -Raw) -match "SELFTEST OK")) {
+            Write-Error "Built EXE self-test failed"; exit 1
+          }
+
+      - name: Create portable ZIP
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          Compress-Archive -Path "dist\PromptVault\*" -DestinationPath "release\PromptVault-v${{ steps.ver.outputs.version }}-windows-portable.zip"
+
+      - name: Build Setup installer (Inno Setup)
+        continue-on-error: true   # نصب‌کننده اختیاری است؛ خطای آن، ZIP و EXE را از بین نمی‌برد
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "/DMyAppVersion=${{ steps.ver.outputs.version }}" "installer\PromptVault.iss"
+          Copy-Item "installer\Output\PromptVault-Setup-*.exe" release\
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PromptVault-windows-v${{ steps.ver.outputs.version }}
+          path: release/*
+
+      - name: Publish GitHub Release (only for tags)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
