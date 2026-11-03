@@ -311,8 +311,8 @@ def test_editor_result_panel_image_and_code(window, qapp, ctx, monkeypatch):
     panel.copy_code()
     assert "OnInit" in QGuiApplication.clipboard().text()
     # پیش‌نمایش در فهرست
-    window.show_page("prompts")
-    page = window.pages["prompts"]
+    window.show_page("all")
+    page = window.pages["all"]
     page.refresh()
     qapp.processEvents()
     page._show_result_preview(pid)
