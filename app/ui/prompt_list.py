@@ -4,8 +4,8 @@
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QDate, QTimer, Qt, Signal
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtCore import QDate, QSize, QTimer, Qt, Signal
+from PySide6.QtGui import QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDateEdit, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
     QMenu, QPlainTextEdit, QPushButton, QSplitter, QVBoxLayout, QWidget,
@@ -201,8 +201,16 @@ class PromptListPage(QWidget):
         self.p_meta = QLabel("")
         self.p_meta.setObjectName("muted")
         self.p_meta.setWordWrap(True)
+        self.p_img = QLabel("")
+        self.p_img.setAlignment(Qt.AlignCenter)
+        self.p_img.setCursor(Qt.PointingHandCursor)
+        self.p_img.setToolTip("برای دیدن تصویر در اندازه‌ی کامل، پرامپت را ویرایش کنید و تب «تصویر و نتیجه» را باز کنید")
+        self.p_img.hide()
         self.p_body = QPlainTextEdit()
         self.p_body.setReadOnly(True)
+        self.p_result = QPushButton("📄 کپی کد / نتیجه‌ی نهایی")
+        self.p_result.clicked.connect(self._copy_result)
+        self.p_result.hide()
         brow = QHBoxLayout()
         self.p_copy = QPushButton("📋 کپی پرامپت")
         self.p_copy.setObjectName("primary")
@@ -213,7 +221,9 @@ class PromptListPage(QWidget):
         brow.addWidget(self.p_edit)
         sl.addWidget(self.p_title)
         sl.addWidget(self.p_meta)
+        sl.addWidget(self.p_img)
         sl.addWidget(self.p_body, 1)
+        sl.addWidget(self.p_result)
         sl.addLayout(brow)
         self.sim_label = QLabel("پرامپت‌های مشابه:")
         self.sim_label.setObjectName("muted")
@@ -384,6 +394,7 @@ class PromptListPage(QWidget):
         for w in (self.p_copy, self.p_edit):
             w.setEnabled(has)
         self.sim_list.clear()
+        self._show_result_preview(pid)
         if not has:
             self.p_title.setText("")
             self.p_meta.setText("")
@@ -419,6 +430,49 @@ class PromptListPage(QWidget):
         trash = self.mode == "trash"
         self.p_copy.setEnabled(not trash)
         self.p_edit.setEnabled(not trash)
+
+    def _show_result_preview(self, pid: int | None) -> None:
+        """تصویر نتیجه (اولین تصویر) کنار پرامپت + دکمه‌ی کپی کد نهایی."""
+        self.p_img.hide()
+        self.p_img.clear()
+        self.p_result.hide()
+        if pid is None:
+            return
+        files = self.ctx.files
+        for a in files.list(pid, "image"):
+            pm = QPixmap(str(files.path_of(a))) if files.exists(a) else QPixmap()
+            if not pm.isNull():
+                self.p_img.setPixmap(pm.scaled(QSize(380, 210), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                self.p_img.show()
+                break
+        results = files.list(pid, "result")
+        if results:
+            self.p_result.setText("📄 کپی کد / نتیجه‌ی نهایی" + (f" ({len(results)} فایل)" if len(results) > 1 else ""))
+            self.p_result.show()
+
+    def _copy_result(self) -> None:
+        pid = self._current_id()
+        if pid is None:
+            return
+        results = [a for a in self.ctx.files.list(pid, "result") if self.ctx.files.exists(a)]
+        if not results:
+            return
+        if len(results) == 1:
+            self._copy_result_file(results[0])
+            return
+        from PySide6.QtGui import QCursor
+        menu = QMenu(self)
+        for a in results:
+            menu.addAction(a.filename, lambda a=a: self._copy_result_file(a))
+        menu.exec(QCursor.pos())
+
+    def _copy_result_file(self, att) -> None:
+        text = self.ctx.files.read_text(att)
+        if text is None:
+            error(self, "قابل کپی نیست", "این فایل متنی نیست؛ از ویرایشگر، تب «تصویر و نتیجه» و «ذخیره به‌عنوان» استفاده کنید.")
+            return
+        copy_to_clipboard(text)
+        self.message.emit(f"«{att.filename}» کپی شد")
 
     # ---------------------------------------------------------------- عملیات
     def _copy_current(self) -> None:

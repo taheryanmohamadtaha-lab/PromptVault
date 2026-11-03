@@ -64,7 +64,8 @@ class ExportManager:
                 for r in q("SELECT * FROM attachments ORDER BY prompt_id, id"):
                     atts_by_prompt.setdefault(r["prompt_id"], []).append({
                         "filename": r["filename"], "stored_name": r["stored_name"],
-                        "size": r["size"], "sha256": r["sha256"], "created_at": r["created_at"]})
+                        "size": r["size"], "sha256": r["sha256"], "created_at": r["created_at"],
+                        "kind": r["kind"]})
             data["prompts"] = []
             for r in q("SELECT * FROM prompts ORDER BY id"):
                 item = {

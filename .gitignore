@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+build/
+dist/
+installer/Output/
+*.spec.bak
+*.pvault
+*.db
+*.db-wal
+*.db-shm
+.DS_Store
+Thumbs.db

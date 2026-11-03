@@ -269,3 +269,59 @@ def test_startup_page_setting(qapp, ctx):
     w.hotkey.unregister()
     w.quick.close()
     w.close()
+
+
+def test_editor_fits_small_screen_and_has_visible_save(window, qapp, ctx):
+    """دکمه‌ی ذخیره نباید بیرون از مانیتور بیفتد: پنجره از ناحیه‌ی قابل‌استفاده‌ی صفحه بزرگ‌تر نیست."""
+    from app.ui.prompt_editor import PromptEditorDialog
+    dlg = PromptEditorDialog(ctx, None, window)
+    dlg.show()
+    qapp.processEvents()
+    avail = (dlg.screen() or QGuiApplication.primaryScreen()).availableGeometry()
+    assert dlg.width() <= avail.width() and dlg.height() <= avail.height()
+    assert dlg.minimumHeight() <= avail.height() and dlg.minimumWidth() <= avail.width()
+    assert dlg.save_btn.isVisible() and dlg.top_save_btn.isVisible()
+    # دکمه‌ی بالایی ذخیره می‌کند و پنجره را باز نگه می‌دارد
+    dlg.title.setText("ذخیره‌ی بالایی")
+    dlg.top_save_btn.click()
+    assert dlg.prompt_id and ctx.prompts.get(dlg.prompt_id).title == "ذخیره‌ی بالایی" and dlg.isVisible()
+    dlg.reject()
+
+
+def test_editor_result_panel_image_and_code(window, qapp, ctx, monkeypatch):
+    from PySide6.QtGui import QImage
+
+    from app.ui.prompt_editor import PromptEditorDialog
+    dlg = PromptEditorDialog(ctx, None, window)
+    dlg.title.setText("با تصویر و کد")
+    assert dlg.save_now()
+    pid = dlg.prompt_id
+    panel = dlg.result_panel
+    # تصویر از کلیپ‌بورد
+    img = QImage(40, 30, QImage.Format_RGB32)
+    img.fill(0xFF3366)
+    QGuiApplication.clipboard().setImage(img)
+    panel.paste_image()
+    imgs = ctx.files.list(pid, "image")
+    assert len(imgs) == 1 and panel.img_list.count() == 1 and panel._img_pix is not None
+    # کد از کلیپ‌بورد (بدون پنجره‌ی پرسش نام فایل)
+    code = ctx.files.add_text(pid, "final.mq5", "int OnInit(){return 0;}", kind="result")
+    panel.refresh(select_result=code.id)
+    assert panel.res_list.count() == 1 and "OnInit" in panel.res_view.toPlainText()
+    panel.copy_code()
+    assert "OnInit" in QGuiApplication.clipboard().text()
+    # پیش‌نمایش در فهرست
+    window.show_page("prompts")
+    page = window.pages["prompts"]
+    page.refresh()
+    qapp.processEvents()
+    page._show_result_preview(pid)
+    assert not page.p_img.isHidden() and not page.p_result.isHidden()
+    # حذف
+    panel.img_list.setCurrentRow(0)
+    from app.ui import result_panel as rp
+    monkeypatch.setattr(rp, "confirm", lambda *a, **k: True)
+    panel.remove_image()
+    assert ctx.files.list(pid, "image") == []
+    dlg.reject()
+

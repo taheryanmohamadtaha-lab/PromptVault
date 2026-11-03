@@ -181,3 +181,69 @@ def test_autosave_does_not_flood_history(ctx):
     assert ctx.prompts.commit_version(p.id) is False     # تغییری نیست
     vs = ctx.versions.list(p.id)
     assert len(vs) == 2 and vs[0].body == "یک 4" and vs[1].body == "یک"
+
+
+# ----------------------------------------------------------------- تصویر و نتیجه‌ی نهایی
+def _png(path):
+    # کوچک‌ترین PNG معتبر (۱×۱ پیکسل)
+    import base64
+    path.write_bytes(base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="))
+    return path
+
+
+def test_attachment_kinds(ctx, tmp_path):
+    p = ctx.prompts.create("نتیجه‌دار", "x")
+    img = ctx.files.add(p.id, _png(tmp_path / "shot.png"), kind="image")
+    code = ctx.files.add_text(p.id, "indicator.mq5", "#property strict\nvoid OnInit(){}", kind="result")
+    plain = ctx.files.add_text(p.id, "notes", "یادداشت", kind="file")
+    assert img.kind == "image" and code.kind == "result" and plain.kind == "file"
+    assert plain.filename == "notes.txt"                                   # پسوند پیش‌فرض
+    assert [a.id for a in ctx.files.list(p.id, "image")] == [img.id]
+    assert [a.id for a in ctx.files.list(p.id, "result")] == [code.id]
+    assert len(ctx.files.list(p.id)) == 3
+    assert "OnInit" in ctx.files.read_text(code)
+    assert ctx.files.read_text(img) is None                                # باینری
+    txt = tmp_path / "x.txt"
+    txt.write_text("a")
+    with pytest.raises(ValueError):                                        # غیر تصویر به‌عنوان تصویر
+        ctx.files.add(p.id, txt, kind="image")
+    with pytest.raises(ValueError):
+        ctx.files.add_text(p.id, "e.txt", "   ")                           # متن خالی
+    with pytest.raises(ValueError):
+        ctx.files.add_text(p.id, "a.txt", "x", kind="bogus")
+
+
+def test_migration_from_v1_database_keeps_data(tmp_path):
+    """دیتابیس نسخه‌ی ۱.۰.۰ (بدون ستون kind) باید بدون از دست رفتن اطلاعات ارتقا پیدا کند."""
+    import sqlite3
+
+    from app.core import database as dbm
+    from app.core.context import AppContext
+    d = tmp_path / "old"
+    d.mkdir()
+    conn = sqlite3.connect(d / "promptvault.db")
+    conn.executescript(dbm._SCHEMA_V1 + "PRAGMA user_version = 1;")
+    conn.execute("INSERT INTO prompts(uuid,title,body,created_at,updated_at) VALUES('u1','قدیمی','متن','t','t')")
+    pid = conn.execute("SELECT id FROM prompts").fetchone()[0]
+    conn.execute("INSERT INTO attachments(prompt_id,filename,stored_name,size,sha256,created_at) "
+                 "VALUES(?,?,?,?,?,?)", (pid, "a.txt", "abc.txt", 1, "h", "t"))
+    conn.commit()
+    conn.close()
+    ctx = AppContext(d)
+    try:
+        assert ctx.db.query_one("PRAGMA user_version")[0] == dbm.SCHEMA_VERSION
+        assert ctx.prompts.get(pid).title == "قدیمی"
+        assert ctx.files.list(pid)[0].kind == "file"
+        assert ctx.db.integrity_ok()
+    finally:
+        ctx.close()
+
+
+def test_scripts_are_never_launched_logic(ctx):
+    p = ctx.prompts.create("امنیت", "x")
+    js = ctx.files.add_text(p.id, "run.js", "alert(1)", kind="result")
+    py = ctx.files.add_text(p.id, "a.py", "print(1)", kind="result")
+    txt = ctx.files.add_text(p.id, "a.txt", "ok", kind="result")
+    assert not ctx.files.is_safe_to_open(js) and not ctx.files.is_safe_to_open(py)
+    assert ctx.files.is_safe_to_open(txt)

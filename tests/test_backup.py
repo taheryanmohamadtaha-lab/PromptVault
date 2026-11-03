@@ -296,3 +296,21 @@ def test_works_without_network(ctx, monkeypatch):
     p = ctx.prompts.create("آفلاین", "x")
     assert ctx.search.search(PromptFilter(query="آفلاین"))[0].id == p.id
     ctx.backups.create_backup(ctx.data_dir / "bk")
+
+
+def test_image_and_result_kinds_survive_backup_and_transfer(ctx, ctx2, tmp_path):
+    from tests.test_prompts import _png
+    p = ctx.prompts.create("با نتیجه", "پرامپت")
+    ctx.files.add(p.id, _png(tmp_path / "shot.png"), kind="image")
+    ctx.files.add_text(p.id, "final.mq5", "// کد نهایی\nint OnInit(){return 0;}", kind="result")
+    backup = ctx.backups.create_backup(tmp_path / "bk")
+    res = ctx2.importer.apply(load_package(backup))
+    assert res.attachments_added == 2 and res.attachments_missing == 0
+    got = ctx2.search.search(PromptFilter(view="all"))[0]
+    kinds = {a.filename: a.kind for a in ctx2.files.list(got.id)}
+    assert kinds == {"shot.png": "image", "final.mq5": "result"}
+    code = ctx2.files.list(got.id, "result")[0]
+    assert "OnInit" in ctx2.files.read_text(code)
+    # JSON هم نوع را حفظ می‌کند ولی فایل ندارد → «بدون فایل» شمرده می‌شود
+    data = ctx.exporter.build_data(("prompts", "attachments"))
+    assert {a["kind"] for a in data["prompts"][0]["attachments"]} == {"image", "result"}

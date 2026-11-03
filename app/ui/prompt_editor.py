@@ -3,11 +3,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, QUrl, Qt, Signal
-from PySide6.QtGui import QDesktopServices, QGuiApplication, QKeySequence, QShortcut
+from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtGui import QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QPlainTextEdit, QPushButton, QSplitter, QStackedWidget, QTabWidget, QTextBrowser,
+    QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+    QListWidgetItem, QPlainTextEdit, QPushButton, QScrollArea, QSplitter, QStackedWidget, QTabWidget, QTextBrowser,
     QVBoxLayout, QWidget,
 )
 
@@ -17,6 +17,7 @@ from ..utils.text import char_count, word_count
 from .dialogs import (
     VersionHistoryDialog, confirm, copy_to_clipboard, error, fill_category_combo, info, select_combo_data,
 )
+from .result_panel import ResultPanel, open_attachment_safely
 
 AUTOSAVE_MS = 1500
 
@@ -33,8 +34,8 @@ class PromptEditorDialog(QDialog):
         self._dirty = False
         self._zoom = int(ctx.settings.get("editor_font_size") or 12)
         self.setWindowTitle("ویرایش پرامپت" if prompt_id else "پرامپت جدید")
-        self.resize(1120, 760)
         self.setLayoutDirection(Qt.RightToLeft)
+        self._fit_to_screen()
         self._build()
         if prompt_id:
             self._load(prompt_id)
@@ -50,6 +51,19 @@ class PromptEditorDialog(QDialog):
         self._timer.timeout.connect(self._autosave)
         QShortcut(QKeySequence("Ctrl+S"), self, activated=self.save_now)
         self.title.setFocus()
+
+    def _fit_to_screen(self) -> None:
+        """اندازه‌ی پنجره بر اساس مانیتور: هرگز بزرگ‌تر از ناحیه‌ی قابل‌استفاده‌ی صفحه نمی‌شود."""
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        if screen is None:
+            self.resize(1000, 640)
+            return
+        avail = screen.availableGeometry()
+        w = min(1180, int(avail.width() * 0.94))
+        h = min(780, int(avail.height() * 0.90))
+        self.setMinimumSize(min(640, w), min(420, h))
+        self.resize(w, h)
+        self.move(avail.center().x() - w // 2, avail.center().y() - h // 2)
 
     # ---------------------------------------------------------------- UI
     def _build(self) -> None:
@@ -81,7 +95,10 @@ class PromptEditorDialog(QDialog):
         zout.setToolTip("کوچک‌نمایی")
         zin.clicked.connect(lambda: self._set_zoom(self._zoom + 1))
         zout.clicked.connect(lambda: self._set_zoom(self._zoom - 1))
-        for w in (self.copy_btn, self.paste_btn, self.md_btn):
+        self.top_save_btn = QPushButton("💾 ذخیره")
+        self.top_save_btn.setToolTip("ذخیره (Ctrl+S) — پنجره باز می‌ماند")
+        self.top_save_btn.clicked.connect(self.save_now)
+        for w in (self.copy_btn, self.top_save_btn, self.paste_btn, self.md_btn):
             bar.addWidget(w)
         bar.addStretch(1)
         bar.addWidget(zout)
@@ -153,7 +170,17 @@ class PromptEditorDialog(QDialog):
         form.addRow(self.pinned)
         form.addRow("توضیحات", self.notes)
         form.addRow(self.info_lbl)
-        side.addTab(meta, "مشخصات")
+        meta_scroll = QScrollArea()
+        meta_scroll.setWidgetResizable(True)
+        meta_scroll.setFrameShape(QFrame.NoFrame)
+        meta_scroll.setWidget(meta)
+        side.addTab(meta_scroll, "مشخصات")
+
+        # تصویر و نتیجه‌ی نهایی
+        self.result_panel = ResultPanel(self.ctx, lambda: self.prompt_id, self._ensure_saved)
+        self.result_panel.message.connect(self.status.setText)
+        side.addTab(self.result_panel, "🖼 تصویر و نتیجه")
+        self.side_tabs = side
 
         # پیوست‌ها
         att = QWidget()
@@ -170,7 +197,7 @@ class PromptEditorDialog(QDialog):
         for b in (b_add, b_open, b_del):
             row.addWidget(b)
         al.addLayout(row)
-        side.addTab(att, "پیوست‌ها")
+        side.addTab(att, "سایر پیوست‌ها")
 
         # نسخه‌ها و مشابه‌ها
         extra = QWidget()
@@ -186,7 +213,8 @@ class PromptEditorDialog(QDialog):
         el.addWidget(self.similar_list, 1)
         side.addTab(extra, "نسخه‌ها و مشابه")
         split.addWidget(side)
-        split.setSizes([740, 380])
+        split.setSizes([700, 460])
+        split.setChildrenCollapsible(False)
 
         # دکمه‌های پایین
         bottom = QHBoxLayout()
@@ -241,6 +269,7 @@ class PromptEditorDialog(QDialog):
         self.similar_list.clear()
         if not self.prompt_id:
             self.info_lbl.setText("")
+            self.result_panel.refresh()
             return
         p = self.ctx.prompts.get(self.prompt_id)
         if p:
@@ -248,7 +277,8 @@ class PromptEditorDialog(QDialog):
                 f"ایجاد: {p.created_at.replace('T', ' ')}\nآخرین ویرایش: {p.updated_at.replace('T', ' ')}\n"
                 f"تعداد استفاده: {p.use_count}"
                 + (f"\nآخرین استفاده: {p.last_used_at.replace('T', ' ')}" if p.last_used_at else ""))
-        for a in self.ctx.files.list(self.prompt_id):
+        self.result_panel.refresh()
+        for a in self.ctx.files.list(self.prompt_id, "file"):
             it = QListWidgetItem(f"📎 {a.filename}  ({a.size // 1024 + 1} KB)")
             it.setData(Qt.UserRole, a.id)
             if not self.ctx.files.exists(a):
@@ -406,7 +436,7 @@ class PromptEditorDialog(QDialog):
         files, _ = QFileDialog.getOpenFileNames(self, "انتخاب فایل پیوست", "", "همه‌ی فایل‌ها (*.*)")
         for f in files:
             try:
-                self.ctx.files.add(self.prompt_id, f)
+                self.ctx.files.add(self.prompt_id, f, kind="file")
             except Exception as e:  # noqa: BLE001
                 error(self, "پیوست ناموفق", f"{Path(f).name}\n{e}")
         self._refresh_side()
@@ -419,10 +449,7 @@ class PromptEditorDialog(QDialog):
         a = self._current_att()
         if a is None:
             return
-        if not self.ctx.files.exists(a):
-            error(self, "فایل پیدا نشد", "فایل پیوست از پوشه‌ی برنامه حذف شده است.")
-            return
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.ctx.files.path_of(a))))
+        open_attachment_safely(self.ctx, a, self)
 
     def remove_attachment(self) -> None:
         a = self._current_att()

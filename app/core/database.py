@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA_V1 = """
 CREATE TABLE categories (
@@ -95,7 +95,12 @@ CREATE TABLE settings (
 );
 """
 
-_MIGRATIONS = {1: _SCHEMA_V1}
+# نسخه‌ی ۲: نوع پیوست  file = فایل عادی، image = تصویر نتیجه (اسکرین‌شات)، result = کد/فایل نهایی ساخته‌شده توسط AI
+_SCHEMA_V2 = """
+ALTER TABLE attachments ADD COLUMN kind TEXT NOT NULL DEFAULT 'file';
+"""
+
+_MIGRATIONS = {1: _SCHEMA_V1, 2: _SCHEMA_V2}
 
 
 class Database:

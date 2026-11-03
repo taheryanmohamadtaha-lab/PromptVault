@@ -508,15 +508,19 @@ class ImportManager:
                 continue
             name = Path(str(a.get("filename", "file"))).name or "file"
             ext = Path(name).suffix.lower()
-            from ..services.file_service import ALLOWED_EXTENSIONS
+            from ..services.file_service import ALLOWED_EXTENSIONS, IMAGE_EXTENSIONS
             if ext not in ALLOWED_EXTENSIONS:
                 result.attachments_missing += 1
                 continue
+            kind = a.get("kind") if a.get("kind") in ("file", "image", "result") else "file"
+            if kind == "image" and ext not in IMAGE_EXTENSIONS:
+                kind = "file"
             stored = f"{uuidlib.uuid4().hex}{ext}"
             dest = self.files.dir / stored
             dest.write_bytes(data)
             written_files.append(dest)
             conn.execute(
-                "INSERT INTO attachments(prompt_id, filename, stored_name, size, sha256, created_at) VALUES(?,?,?,?,?,?)",
-                (pid, name, stored, len(data), h, a.get("created_at") or now_iso()))
+                "INSERT INTO attachments(prompt_id, filename, stored_name, size, sha256, created_at, kind) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (pid, name, stored, len(data), h, a.get("created_at") or now_iso(), kind))
             result.attachments_added += 1
