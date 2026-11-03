@@ -303,7 +303,7 @@ def test_editor_result_panel_image_and_code(window, qapp, ctx, monkeypatch):
     QGuiApplication.clipboard().setImage(img)
     panel.paste_image()
     imgs = ctx.files.list(pid, "image")
-    assert len(imgs) == 1 and panel.img_list.count() == 1 and panel._img_pix is not None
+    assert len(imgs) == 1 and panel.img_list.count() == 1 and panel.img_view._pix is not None
     # کد از کلیپ‌بورد (بدون پنجره‌ی پرسش نام فایل)
     code = ctx.files.add_text(pid, "final.mq5", "int OnInit(){return 0;}", kind="result")
     panel.refresh(select_result=code.id)
@@ -325,3 +325,28 @@ def test_editor_result_panel_image_and_code(window, qapp, ctx, monkeypatch):
     assert ctx.files.list(pid, "image") == []
     dlg.reject()
 
+
+
+def test_dashboard_tooltip_shows_result_image(window, qapp, ctx, tmp_path):
+    """با نگه داشتن موس روی پرامپت در داشبورد، تصویر کوچک پیوست‌شده در تولتیپ نمایش داده می‌شود."""
+    from PySide6.QtGui import QImage
+    p = ctx.prompts.create("دارای تصویر", "متن <b>پرامپت</b>")
+    plain = ctx.prompts.create("بدون تصویر", "فقط متن")
+    img = QImage(60, 40, QImage.Format_RGB32)
+    img.fill(0x3366FF)
+    png = tmp_path / "shot.png"
+    img.save(str(png))
+    ctx.files.add(p.id, png, kind="image")
+    window.show_page("dashboard")
+    dash = window.pages["dashboard"]
+    dash.refresh()
+    qapp.processEvents()
+    tips = {}
+    for sec in (dash.sec_added, dash.sec_edited):
+        for i in range(sec.list.count()):
+            it = sec.list.item(i)
+            tips[it.text()] = it.toolTip()
+    with_img = next(t for k, t in tips.items() if "دارای تصویر" in k)
+    without = next(t for k, t in tips.items() if "بدون تصویر" in k)
+    assert "<img" in with_img and ".png" not in without and "<img" not in without
+    assert "&lt;b&gt;" in with_img          # متن پرامپت HTML نمی‌شود

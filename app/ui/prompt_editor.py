@@ -179,7 +179,11 @@ class PromptEditorDialog(QDialog):
         # تصویر و نتیجه‌ی نهایی
         self.result_panel = ResultPanel(self.ctx, lambda: self.prompt_id, self._ensure_saved)
         self.result_panel.message.connect(self.status.setText)
-        side.addTab(self.result_panel, "🖼 تصویر و نتیجه")
+        rp_scroll = QScrollArea()
+        rp_scroll.setWidgetResizable(True)
+        rp_scroll.setFrameShape(QFrame.NoFrame)
+        rp_scroll.setWidget(self.result_panel)
+        side.addTab(rp_scroll, "🖼 تصویر و نتیجه")
         self.side_tabs = side
 
         # پیوست‌ها

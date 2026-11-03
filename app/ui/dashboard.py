@@ -10,15 +10,16 @@ from PySide6.QtWidgets import (
 from .. import APP_NAME_FA, APP_SLOGAN
 from ..core.context import AppContext
 from ..services.search_service import PromptFilter
-from .widgets import ROLE_PROMPT_ID, StatCard, add_shadow
+from .widgets import ROLE_PROMPT_ID, StatCard, add_shadow, prompt_tooltip
 
 
 class _Section(QFrame):
     """کادر یک فهرست کوتاه (مثلاً «آخرین پرامپت‌های اضافه‌شده»)."""
     open_prompt = Signal(int)
 
-    def __init__(self, title: str, empty_text: str, parent: QWidget | None = None):
+    def __init__(self, ctx: AppContext, title: str, empty_text: str, parent: QWidget | None = None):
         super().__init__(parent)
+        self.ctx = ctx
         self.setObjectName("panel")
         self._empty_text = empty_text
         lay = QVBoxLayout(self)
@@ -49,7 +50,7 @@ class _Section(QFrame):
             badge = ("📌 " if p.pinned else "") + ("⭐ " if p.favorite else "")
             it = QListWidgetItem(f"{badge}{p.title}")
             it.setData(ROLE_PROMPT_ID, p.id)
-            it.setToolTip((p.body or "")[:300])
+            it.setToolTip(prompt_tooltip(self.ctx, p))
             self.list.addItem(it)
 
 
@@ -120,10 +121,10 @@ class DashboardPage(QWidget):
         # ---- فهرست‌ها
         lists = QGridLayout()
         lists.setSpacing(14)
-        self.sec_added = _Section("🆕 آخرین پرامپت‌های اضافه‌شده", "هنوز پرامپتی اضافه نشده است.")
-        self.sec_edited = _Section("✏️ آخرین پرامپت‌های ویرایش‌شده", "هنوز ویرایشی انجام نشده است.")
-        self.sec_important = _Section("⭐ پرامپت‌های مهم و ستاره‌دار", "پرامپتی با علاقه‌مندی، سنجاق یا اهمیت زیاد نیست.")
-        self.sec_used = _Section("🕘 اخیراً استفاده‌شده", "هنوز پرامپتی کپی نشده است.")
+        self.sec_added = _Section(ctx, "🆕 آخرین پرامپت‌های اضافه‌شده", "هنوز پرامپتی اضافه نشده است.")
+        self.sec_edited = _Section(ctx, "✏️ آخرین پرامپت‌های ویرایش‌شده", "هنوز ویرایشی انجام نشده است.")
+        self.sec_important = _Section(ctx, "⭐ پرامپت‌های مهم و ستاره‌دار", "پرامپتی با علاقه‌مندی، سنجاق یا اهمیت زیاد نیست.")
+        self.sec_used = _Section(ctx, "🕘 اخیراً استفاده‌شده", "هنوز پرامپتی کپی نشده است.")
         for sec in (self.sec_added, self.sec_edited, self.sec_important, self.sec_used):
             sec.open_prompt.connect(self.open_prompt.emit)
         lists.addWidget(self.sec_added, 0, 0)

@@ -15,7 +15,7 @@ from PySide6.QtCore import QBuffer, QIODevice, QSize, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QFontDatabase, QGuiApplication, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QFileDialog, QHBoxLayout, QLabel, QListView, QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton,
-    QScrollArea, QVBoxLayout, QWidget,
+    QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from ..core.context import AppContext
@@ -40,6 +40,41 @@ def open_attachment_safely(ctx: AppContext, att, parent: QWidget) -> None:
              "برای دیدن متن از پیش‌نمایش داخل برنامه و برای ذخیره از «ذخیره به‌عنوان» استفاده کنید.")
 
 
+class FitImageLabel(QLabel):
+    """تصویر را با حفظ نسبت و به‌اندازه‌ی کل کادر نشان می‌دهد (بدون اسکرول و بدون پس‌زمینه‌ی اضافه)."""
+    clicked = Signal()
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._pix: QPixmap | None = None
+        self.setAlignment(Qt.AlignCenter)
+        self.setWordWrap(True)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+        self.setMinimumSize(160, 140)
+        self.setStyleSheet("background: transparent; border: none;")
+
+    def set_source(self, pm: QPixmap | None, message: str = "") -> None:
+        self._pix = pm if pm is not None and not pm.isNull() else None
+        if self._pix is None:
+            self.clear()
+            self.setText(message)
+        else:
+            self._refit()
+
+    def _refit(self) -> None:
+        if self._pix is not None:
+            self.setPixmap(self._pix.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+
+    def resizeEvent(self, ev) -> None:  # noqa: N802
+        super().resizeEvent(ev)
+        self._refit()
+
+    def mouseReleaseEvent(self, ev) -> None:  # noqa: N802
+        super().mouseReleaseEvent(ev)
+        if self._pix is not None:
+            self.clicked.emit()
+
+
 class ResultPanel(QWidget):
     message = Signal(str)     # پیام کوتاه وضعیت برای پنجره‌ی میزبان
 
@@ -49,8 +84,8 @@ class ResultPanel(QWidget):
         self.ctx = ctx
         self._pid = get_prompt_id
         self._ensure = ensure_saved
-        self._img_pix: QPixmap | None = None
         self.setAcceptDrops(True)
+        self.setMinimumHeight(560)
         self._build()
         self.refresh()
 
@@ -63,14 +98,11 @@ class ResultPanel(QWidget):
         h1 = QLabel("🖼 تصویر برنامه / اندیکاتور")
         h1.setObjectName("h2")
         root.addWidget(h1)
-        self.img_scroll = QScrollArea()
-        self.img_scroll.setWidgetResizable(True)
-        self.img_scroll.setMinimumHeight(140)
-        self.img_view = QLabel()
-        self.img_view.setAlignment(Qt.AlignCenter)
-        self.img_view.setWordWrap(True)
-        self.img_scroll.setWidget(self.img_view)
-        root.addWidget(self.img_scroll, 3)
+        self.img_view = FitImageLabel()
+        self.img_view.setCursor(Qt.PointingHandCursor)
+        self.img_view.setToolTip("برای دیدن در اندازه‌ی کامل کلیک کنید")
+        self.img_view.clicked.connect(self.open_image)
+        root.addWidget(self.img_view, 6)
 
         self.img_list = QListWidget()
         self.img_list.setViewMode(QListView.IconMode)
@@ -79,7 +111,7 @@ class ResultPanel(QWidget):
         self.img_list.setMovement(QListView.Static)
         self.img_list.setIconSize(QSize(64, 64))
         self.img_list.setSpacing(4)
-        self.img_list.setFixedHeight(96)
+        self.img_list.setFixedHeight(84)
         self.img_list.currentItemChanged.connect(lambda cur, _prev: self._show_image(self._id_of(cur)))
         self.img_list.itemDoubleClicked.connect(lambda _i: self.open_image())
         root.addWidget(self.img_list)
@@ -171,31 +203,13 @@ class ResultPanel(QWidget):
         widget.setCurrentRow(row)
 
     def _show_image(self, att_id: int | None) -> None:
-        self._img_pix = None
         att = self.ctx.files.get(att_id) if att_id else None
         if att is None:
-            self.img_view.setText("هنوز تصویری اضافه نشده است.\n"
-                                  "تصویر را اینجا بکشید و رها کنید، یا «افزودن تصویر» / «از کلیپ‌بورد» را بزنید.")
+            self.img_view.set_source(None, "هنوز تصویری اضافه نشده است.\n"
+                                     "تصویر را اینجا بکشید و رها کنید، یا «افزودن تصویر» / «از کلیپ‌بورد» را بزنید.")
             return
         pm = QPixmap(str(self.ctx.files.path_of(att))) if self.ctx.files.exists(att) else QPixmap()
-        if pm.isNull():
-            self.img_view.setText("این تصویر قابل نمایش نیست.")
-            return
-        self._img_pix = pm
-        self._render_image()
-
-    def _render_image(self) -> None:
-        pm = self._img_pix
-        if pm is None:
-            return
-        width = max(120, self.img_scroll.viewport().width() - 16)
-        if pm.width() > width:
-            pm = pm.scaledToWidth(width, Qt.SmoothTransformation)
-        self.img_view.setPixmap(pm)
-
-    def resizeEvent(self, ev) -> None:  # noqa: N802
-        super().resizeEvent(ev)
-        self._render_image()
+        self.img_view.set_source(pm, "این تصویر قابل نمایش نیست.")
 
     def _show_result(self, att_id: int | None) -> None:
         att = self.ctx.files.get(att_id) if att_id else None

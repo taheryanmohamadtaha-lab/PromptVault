@@ -182,6 +182,26 @@ def prompt_item_data(p, category_name: str = "") -> dict:
     }
 
 
+def prompt_tooltip(ctx, p, max_chars: int = 300) -> str:
+    """تولتیپ پرامپت: تصویر کوچک نتیجه (در صورت وجود) + ابتدای متن پرامپت."""
+    import html
+
+    from PySide6.QtCore import QUrl
+    text = html.escape((p.body or "")[:max_chars]).replace("\n", "<br>")
+    img_html = ""
+    try:
+        for a in ctx.files.list(p.id, "image"):
+            if ctx.files.exists(a):
+                src = QUrl.fromLocalFile(str(ctx.files.path_of(a))).toString()
+                img_html = f'<img src="{src}" width="320"><br>'
+                break
+    except Exception:  # noqa: BLE001  (تولتیپ هرگز نباید خطا بدهد)
+        img_html = ""
+    if not img_html:
+        return (p.body or "")[:max_chars]
+    return f'<table width="320"><tr><td>{img_html}{text}</td></tr></table>'
+
+
 def h_line(parent: QWidget | None = None) -> QFrame:
     f = QFrame(parent)
     f.setFrameShape(QFrame.HLine)

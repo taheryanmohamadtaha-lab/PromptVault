@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QDialog, QLabel, QLineEdit, QListWidget, QListWidg
 from ..core.context import AppContext
 from ..services.search_service import PromptFilter
 from .dialogs import copy_to_clipboard
-from .widgets import ROLE_PROMPT_ID
+from .widgets import ROLE_PROMPT_ID, prompt_tooltip
 
 
 class QuickSearchDialog(QDialog):
@@ -67,7 +67,7 @@ class QuickSearchDialog(QDialog):
         for p in results:
             it = QListWidgetItem(("⭐ " if p.favorite else "") + p.title)
             it.setData(ROLE_PROMPT_ID, p.id)
-            it.setToolTip((p.body or "")[:300])
+            it.setToolTip(prompt_tooltip(self.ctx, p))
             self.list.addItem(it)
         if self.list.count():
             self.list.setCurrentRow(0)
